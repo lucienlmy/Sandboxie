@@ -3,20 +3,6 @@ name: Lock announcements
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      category_name:
-        description: Discussion category name for release announcements
-        required: false
-        default: Announcements
-      release_tag:
-        description: Optional release tag to keep unlocked; if empty, the latest published release tag is used
-        required: false
-        default: ""
-      max_to_lock:
-        description: Maximum number of old release announcements to lock per run
-        required: false
-        default: "20"
 
 jobs:
   lock-announcements:
@@ -118,8 +104,8 @@ jobs:
           EOF
 
           read -r -d '' LOCK_MUTATION <<'EOF' || true
-          mutation($id: ID!, $reason: LockReason) {
-            lockLockable(input: { lockableId: $id, lockReason: $reason }) {
+          mutation($id: ID!) {
+            lockLockable(input: { lockableId: $id }) {
               lockedRecord {
                 __typename
               }
@@ -158,10 +144,9 @@ jobs:
             )"
 
             discussions_json="$(
-              jq -c \
-                --argjson existing "$discussions_json" \
-                --argjson page "$page_matches" \
-                '$existing + $page'
+              jq -sc 'add' \
+                <(printf '%s\n' "$discussions_json") \
+                <(printf '%s\n' "$page_matches")
             )"
 
             has_next="$(jq -r '.data.repository.discussions.pageInfo.hasNextPage' <<<"$response")"
@@ -240,12 +225,13 @@ jobs:
             jq -c --arg keep_id "$keep_id" --arg max_to_lock "$MAX_TO_LOCK" '
               ($max_to_lock | tonumber) as $limit
               | sort_by(.createdAt)
+              | map(select(.id != $keep_id and .locked == false))
+              | .[0:$limit]
               | .[]
-              | select(.id != $keep_id)
-              | select(.locked == false)
-              | limit($limit; .)
             ' <<<"$release_like_discussions"
           )
+
+          echo "Selected ${#to_lock[@]} discussion(s) to lock in this run."
 
           if [[ "${#to_lock[@]}" -eq 0 ]]; then
             echo "No previous release announcements need locking."
@@ -266,7 +252,6 @@ jobs:
 
             gh api graphql \
               -f id="$id" \
-              -f reason="RESOLVED" \
               -f query="$LOCK_MUTATION" \
               >/dev/null
 
