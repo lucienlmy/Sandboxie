@@ -16,9 +16,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          CATEGORY_NAME: ${{ inputs.category_name || 'Announcements' }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || '' }}
-          MAX_TO_LOCK: ${{ inputs.max_to_lock || '20' }}
+          CATEGORY_NAME: Announcements
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          MAX_TO_LOCK: "20"
         shell: bash
         run: |
           set -euo pipefail
@@ -28,15 +28,8 @@ jobs:
 
           release_tag="${RELEASE_TAG}"
 
-          if [[ -z "${release_tag}" ]]; then
-            echo "No release tag provided by event or manual input. Resolving latest published release tag..."
-            release_tag="$(
-              gh api "/repos/${owner}/${repo}/releases/latest" --jq '.tag_name'
-            )"
-          fi
-
           if [[ -z "${release_tag}" || "${release_tag}" == "null" ]]; then
-            echo "No release tag was provided and no latest release tag could be resolved." >&2
+            echo "Release event did not provide a tag name." >&2
             exit 1
           fi
 
@@ -186,7 +179,7 @@ jobs:
             jq -c --arg tag "$release_tag" '
               [
                 .[]
-                | select(.title | contains($tag))
+                | select(.title | test("(^|[^0-9A-Za-z])" + ($tag | gsub("([][(){}.^$*+?|\\\\-])"; "\\\\\\1")) + "([^0-9A-Za-z]|$)"; "i"))
               ]
               | sort_by(.createdAt)
               | reverse
